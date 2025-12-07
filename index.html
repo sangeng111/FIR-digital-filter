@@ -1,0 +1,685 @@
+v<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FIR 数字滤波器窗函数设计</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* 针对移动端进行优化 */
+      .container {
+        max-width: 100%;
+        padding: 1rem;
+      }
+      @media (min-width: 640px) {
+        .container {
+          max-width: 90%;
+          padding: 2rem;
+        }
+      }
+      canvas {
+        border: 1px solid #e5e7eb;
+        background-color: #ffffff;
+        border-radius: 0.5rem;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50 text-gray-800 font-sans">
+    <div class="container mx-auto p-4 md:p-8">
+      <h1 class="text-3xl font-bold text-indigo-700 mb-6 border-b-2 pb-2">
+        FIR 数字滤波器窗函数设计系统
+      </h1>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- 滤波器参数输入区 -->
+        <div
+          id="controls"
+          class="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-full"
+        >
+          <h2 class="text-xl font-semibold mb-4 text-gray-700">
+            设计参数 (频率为归一化数字频率 $\pi$ 的倍数)
+          </h2>
+
+          <div class="space-y-4">
+            <!-- 滤波器类型 -->
+            <div>
+              <label
+                for="filterType"
+                class="block text-sm font-medium text-gray-700"
+                >滤波器类型:</label
+              >
+              <select
+                id="filterType"
+                class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md shadow-sm"
+              >
+                <option value="lowpass">低通 (Lowpass)</option>
+                <option value="highpass">高通 (Highpass)</option>
+                <option value="bandpass">带通 (Bandpass)</option>
+                <option value="bandstop">带阻 (Bandstop)</option>
+              </select>
+            </div>
+
+            <!-- 截止频率 / 通带边缘频率 (wp) -->
+            <div>
+              <label for="wp" class="block text-sm font-medium text-gray-700"
+                >通带截止频率 $\omega_p / \pi$ (例如: 0.2):</label
+              >
+              <input
+                type="number"
+                id="wp"
+                value="0.2"
+                min="0"
+                max="1.0"
+                step="0.01"
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              />
+            </div>
+
+            <!-- 阻带起始频率 (ws) -->
+            <div>
+              <label for="ws" class="block text-sm font-medium text-gray-700"
+                >阻带起始频率 $\omega_s / \pi$ (例如: 0.3):</label
+              >
+              <input
+                type="number"
+                id="ws"
+                value="0.3"
+                min="0"
+                max="1.0"
+                step="0.01"
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              />
+            </div>
+
+            <!-- 阻带衰减 (As) -->
+            <div>
+              <label for="As" class="block text-sm font-medium text-gray-700"
+                >阻带最小衰减 $A_s$ (dB, 例如: 40):</label
+              >
+              <input
+                type="number"
+                id="As"
+                value="40"
+                min="20"
+                max="100"
+                step="1"
+                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              />
+            </div>
+
+            <!-- 额外参数 (Bandpass/Bandstop 专用) -->
+            <div
+              id="extraFreqContainer"
+              class="space-y-4 hidden border-t pt-4 mt-4"
+            >
+              <h3 class="text-md font-medium text-gray-600">
+                带通/带阻 额外参数
+              </h3>
+              <div>
+                <label for="wp2" class="block text-sm font-medium text-gray-700"
+                  >通带截止频率 $\omega_{p2} / \pi$:</label
+                >
+                <input
+                  type="number"
+                  id="wp2"
+                  value="0.5"
+                  min="0"
+                  max="1.0"
+                  step="0.01"
+                  class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+              </div>
+              <div>
+                <label for="ws2" class="block text-sm font-medium text-gray-700"
+                  >阻带起始频率 $\omega_{s2} / \pi$:</label
+                >
+                <input
+                  type="number"
+                  id="ws2"
+                  value="0.6"
+                  min="0"
+                  max="1.0"
+                  step="0.01"
+                  class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+              </div>
+            </div>
+
+            <button
+              onclick="designAndPlot()"
+              class="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out"
+            >
+              设计并分析滤波器
+            </button>
+          </div>
+        </div>
+
+        <!-- 结果显示区 -->
+        <div class="lg:col-span-2 space-y-8">
+          <!-- 滤波器设计结果概览 -->
+          <div id="resultsSummary" class="bg-white p-6 rounded-xl shadow-lg">
+            <h2 class="text-xl font-semibold mb-3 text-gray-700">
+              设计结果概览
+            </h2>
+            <p id="designInfo" class="text-sm text-gray-600">
+              输入参数并点击设计按钮开始计算。
+            </p>
+            <p id="errorMsg" class="text-red-600 font-medium mt-2 hidden">
+              输入错误：频率 $\omega_s$ 必须大于 $\omega_p$。
+            </p>
+          </div>
+
+          <!-- 幅频响应图 -->
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">
+              幅频响应 $|H(e^{j\omega})|$ (dB)
+            </h2>
+            <canvas
+              id="magnitudeCanvas"
+              width="800"
+              height="300"
+              class="w-full"
+            ></canvas>
+          </div>
+
+          <!-- 相频响应图 -->
+          <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">
+              相频响应 $\angle H(e^{j\omega})$ (弧度)
+            </h2>
+            <canvas
+              id="phaseCanvas"
+              width="800"
+              height="300"
+              class="w-full"
+            ></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // 常量
+      const PI = Math.PI;
+      const EXTRA_OFFSET = 0.001; // 防止除以零
+      const FFT_SIZE = 1024; // 用于频率响应计算的FFT点数
+
+      // =================================================================
+      // 核心算法函数 (以 DSP 教材风格实现)
+      // =================================================================
+
+      /**
+       * 1. 经验公式估算滤波器阶数 N 和选择窗函数
+       * @param {number} As - 阻带最小衰减 (dB)
+       * @param {number} delta_omega - 归一化过渡带宽 (Fs/2=pi)
+       * @returns {{N: number, windowName: string}}
+       */
+      function estimateOrderAndWindow(As, delta_omega) {
+        let N;
+        let windowName;
+        let K; // 窗函数的阻带衰减对应的系数 K
+
+        if (As <= 21) {
+          // 矩形窗 (Rectangular)
+          N = Math.ceil(0.9 / delta_omega);
+          windowName = "Rectangular (21dB)";
+          K = 0.9;
+        } else if (As <= 44) {
+          // Hamming 窗
+          N = Math.ceil(3.3 / delta_omega);
+          windowName = "Hamming (44dB)";
+          K = 3.3;
+        } else if (As <= 53) {
+          // Hanning 窗
+          N = Math.ceil(3.5 / delta_omega);
+          windowName = "Hanning (53dB)";
+          K = 3.5;
+        } else if (As <= 74) {
+          // Blackman 窗
+          N = Math.ceil(5.5 / delta_omega);
+          windowName = "Blackman (74dB)";
+          K = 5.5;
+        } else {
+          // 如果衰减要求更高，则使用 Kaiser 窗的近似 (此处简化为更高的阶数)
+          // N = Math.ceil((As - 7.95) / (2.285 * delta_omega));
+          N = Math.ceil(6.6 / delta_omega); // 简化使用更高的系数
+          windowName = `Blackman (74dB) - 阶数更高 ${As}dB`;
+          K = 6.6;
+        }
+
+        // 确保 N 为偶数 (简化处理，通常需要 N+1 个系数)
+        // N 必须为偶数，则滤波器长度 L = N + 1 为奇数，中心点 m = N/2
+        // 窗函数长度 L = N + 1
+        N = N % 2 === 0 ? N : N + 1;
+
+        return { N, windowName, K };
+      }
+
+      /**
+       * 2. 计算理想冲激响应 h_d[n]
+       * @param {number} n - 采样点索引
+       * @param {number} Wc - 归一化截止频率 (0 到 1)
+       * @param {number} type - 滤波器类型 (lowpass, highpass, bandpass, bandstop)
+       * @returns {number}
+       */
+      function idealImpulseResponse(n, Wc, Wc2, type) {
+        // Wc 和 Wc2 已经是以 PI 为单位的归一化频率 (0.0 - 1.0)
+        const m = n - Wc.N / 2; // 移动到中心点
+        if (m === 0) {
+          switch (type) {
+            case "lowpass":
+              return Wc.Wc; // Wc / (pi) * pi = Wc
+            case "highpass":
+              return 1.0 - Wc.Wc; // 1 - Wc
+            case "bandpass":
+              return Wc2.Wc - Wc.Wc;
+            case "bandstop":
+              return 1.0 - (Wc2.Wc - Wc.Wc);
+            default:
+              return 0;
+          }
+        }
+
+        const sinc = (x) => Math.sin(PI * x) / (PI * x);
+
+        switch (type) {
+          case "lowpass":
+            // h_d[n] = (Wc/pi) * sinc(Wc * (n-N/2))
+            return Wc.Wc * sinc(Wc.Wc * m);
+
+          case "highpass":
+            // h_d[n] = delta[n] * 1 - 2 * (Wc/2pi) * sin(Wc*m) / m
+            // 简化为 h_d[n] = delta[n] * 1 - Lowpass_hd[n]
+            return -Wc.Wc * sinc(Wc.Wc * m);
+
+          case "bandpass":
+            // h_d[n] = Lowpass(Wc2) - Lowpass(Wc)
+            return Wc2.Wc * sinc(Wc2.Wc * m) - Wc.Wc * sinc(Wc.Wc * m);
+
+          case "bandstop":
+            // h_d[n] = delta[n] - Bandpass_hd[n]
+            return -(Wc2.Wc * sinc(Wc2.Wc * m) - Wc.Wc * sinc(Wc.Wc * m));
+
+          default:
+            return 0;
+        }
+      }
+
+      /**
+       * 3. 窗函数 w[n]
+       * @param {number} n - 采样点索引
+       * @param {number} N - 滤波器阶数 (窗函数长度 L = N+1)
+       * @param {string} windowName - 窗函数名称
+       * @returns {number}
+       */
+      function getWindowValue(n, N, windowName) {
+        const L = N + 1;
+        // n 的范围是 0 到 N
+        const index = n;
+        const norm_n = index / N; // 0 到 1
+        const m = (2 * PI * index) / N; // 0 到 2*PI
+
+        if (windowName.includes("Rectangular")) {
+          return 1.0;
+        }
+        if (windowName.includes("Hamming")) {
+          // w[n] = 0.54 - 0.46 * cos(2*pi*n / N)
+          return 0.54 - 0.46 * Math.cos(m);
+        }
+        if (windowName.includes("Hanning")) {
+          // w[n] = 0.5 - 0.5 * cos(2*pi*n / N)
+          return 0.5 - 0.5 * Math.cos(m);
+        }
+        if (windowName.includes("Blackman")) {
+          // w[n] = 0.42 - 0.5 * cos(m) + 0.08 * cos(2*m)
+          return 0.42 - 0.5 * Math.cos(m) + 0.08 * Math.cos(2 * m);
+        }
+
+        return 1.0; // 默认矩形窗
+      }
+
+      /**
+       * 4. 频率响应计算 (使用 FFT)
+       * @param {Array<number>} h - FIR 滤波器系数
+       * @param {number} fftSize - FFT 点数
+       * @returns {{magnitude: Array<number>, phase: Array<number>}}
+       */
+      function calculateFrequencyResponse(h, fftSize) {
+        // 补零到 FFT_SIZE
+        const padded_h = new Array(fftSize).fill(0);
+        for (let i = 0; i < h.length; i++) {
+          padded_h[i] = h[i];
+        }
+
+        // 简化版 FFT (仅计算 Mag/Phase，不实现全通用 FFT)
+        // 仅计算 0 到 PI (0 到 Nyquist 频率) 的响应
+        const numPoints = fftSize / 2;
+        const magnitude = new Array(numPoints);
+        const phase = new Array(numPoints);
+
+        for (let k = 0; k < numPoints; k++) {
+          const omega = (2 * PI * k) / fftSize;
+          let Re = 0;
+          let Im = 0;
+
+          // H(e^jw) = sum h[n] * e^(-j*w*n)
+          for (let n = 0; n < h.length; n++) {
+            const phase_term = -omega * n;
+            Re += h[n] * Math.cos(phase_term);
+            Im += h[n] * Math.sin(phase_term);
+          }
+
+          // Magnitude in dB: 20*log10(|H|)
+          const mag = Math.sqrt(Re * Re + Im * Im);
+          magnitude[k] = 20 * Math.log10(mag + EXTRA_OFFSET); // + offset to prevent log(0)
+
+          // Phase: atan2(Im, Re)
+          phase[k] = Math.atan2(Im, Re);
+        }
+
+        return { magnitude, phase };
+      }
+
+      // =================================================================
+      // UI 和绘图函数
+      // =================================================================
+
+      /**
+       * 主设计函数
+       */
+      function designAndPlot() {
+        // 1. 获取输入
+        const type = document.getElementById("filterType").value;
+        const wp = parseFloat(document.getElementById("wp").value); // 归一化频率 / pi
+        const ws = parseFloat(document.getElementById("ws").value); // 归一化频率 / pi
+        const As = parseFloat(document.getElementById("As").value); // dB
+
+        const wp2Input = document.getElementById("wp2");
+        const ws2Input = document.getElementById("ws2");
+        let wp2 =
+          wp2Input.offsetParent !== null ? parseFloat(wp2Input.value) : 0;
+        let ws2 =
+          ws2Input.offsetParent !== null ? parseFloat(ws2Input.value) : 0;
+
+        const errorMsgElement = document.getElementById("errorMsg");
+        const designInfoElement = document.getElementById("designInfo");
+
+        // 2. 参数检查 (简化为 Lowpass/Highpass 的单边检查)
+        if (type === "lowpass" && ws <= wp) {
+          errorMsgElement.classList.remove("hidden");
+          designInfoElement.textContent = "设计失败。";
+          return;
+        }
+        if (type === "highpass" && wp <= ws) {
+          errorMsgElement.classList.remove("hidden");
+          designInfoElement.textContent = "设计失败。";
+          return;
+        }
+        errorMsgElement.classList.add("hidden");
+
+        // 3. 估算阶数和窗函数
+        let delta_omega;
+        if (type === "lowpass" || type === "highpass") {
+          delta_omega = Math.abs(ws - wp);
+        } else {
+          // 对于带通/带阻，过渡带可以取最小的
+          delta_omega = Math.min(Math.abs(ws - wp), Math.abs(ws2 - wp2));
+        }
+
+        if (delta_omega <= 0) {
+          errorMsgElement.textContent =
+            "过渡带宽过小或频率设置错误，无法设计。";
+          errorMsgElement.classList.remove("hidden");
+          return;
+        }
+
+        const { N, windowName, K } = estimateOrderAndWindow(As, delta_omega);
+        const filterLength = N + 1;
+
+        designInfoElement.innerHTML = `
+                <ul class="list-disc list-inside space-y-1 mt-2">
+                    <li>估算阶数 $N$: <code class="font-mono text-sm">${N}</code>, 滤波器长度 $L$: <code class="font-mono text-sm">${filterLength}</code></li>
+                    <li>窗函数选择: <code class="font-mono text-sm text-green-700">${windowName}</code> (基于 $A_s = ${As}$ dB)</li>
+                    <li>过渡带 $\Delta \omega / \pi$: <code class="font-mono text-sm">${delta_omega.toFixed(
+                      4
+                    )}</code></li>
+                    <li>实际截止频率 $\omega_c / \pi$: <code class="font-mono text-sm">${
+                      (wp + ws) / 2
+                    }</code></li>
+                </ul>
+            `;
+
+        // 4. 确定实际截止频率 Wc (Lowpass/Highpass) 或 Wc1, Wc2 (Bandpass/Bandstop)
+        let Wc1, Wc2;
+        if (type === "lowpass") {
+          Wc1 = (wp + ws) / 2;
+          Wc2 = 0;
+        } else if (type === "highpass") {
+          Wc1 = (wp + ws) / 2;
+          Wc2 = 0;
+        } else if (type === "bandpass" || type === "bandstop") {
+          Wc1 = (wp + ws) / 2;
+          Wc2 = (wp2 + ws2) / 2;
+          // 确保 Wc1 < Wc2
+          if (Wc1 > Wc2) {
+            [Wc1, Wc2] = [Wc2, Wc1];
+          }
+        }
+
+        // 5. 计算滤波器系数 h[n]
+        const h = new Array(filterLength);
+        for (let n = 0; n < filterLength; n++) {
+          // Lowpass/Highpass
+          if (type === "lowpass" || type === "highpass") {
+            const hd = idealImpulseResponse(n, { Wc: Wc1, N: N }, 0, type);
+            const w = getWindowValue(n, N, windowName);
+            h[n] = hd * w;
+          }
+          // Bandpass/Bandstop
+          else {
+            const hd = idealImpulseResponse(
+              n,
+              { Wc: Wc1, N: N },
+              { Wc: Wc2, N: N },
+              type
+            );
+            const w = getWindowValue(n, N, windowName);
+            h[n] = hd * w;
+          }
+        }
+
+        // 6. 频率响应分析 (FFT)
+        const { magnitude, phase } = calculateFrequencyResponse(h, FFT_SIZE);
+
+        // 7. 绘图
+        plotFrequencyResponse(
+          "magnitudeCanvas",
+          magnitude,
+          "幅频响应 |H(e^jω)| (dB)",
+          "归一化频率 ω/π",
+          "幅度 (dB)",
+          "magnitude"
+        );
+        plotFrequencyResponse(
+          "phaseCanvas",
+          phase,
+          "相频响应 ∠H(e^jω)| (弧度)",
+          "归一化频率 ω/π",
+          "相位 (rad)",
+          "phase"
+        );
+      }
+
+      /**
+       * 通用绘图函数 (使用 Canvas)
+       */
+      function plotFrequencyResponse(
+        canvasId,
+        data,
+        title,
+        xLabel,
+        yLabel,
+        mode
+      ) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas.getContext) return;
+
+        const ctx = canvas.getContext("2d");
+        const width = canvas.width;
+        const height = canvas.height;
+
+        ctx.clearRect(0, 0, width, height);
+
+        // 边界和填充
+        const padding = 40;
+        const plotWidth = width - 2 * padding;
+        const plotHeight = height - 2 * padding;
+
+        // 找到数据范围
+        let maxVal = Math.max(...data);
+        let minVal = Math.min(...data);
+
+        // 确保 y 轴有一个合理的范围
+        if (mode === "magnitude") {
+          // dB 图，范围通常从 0dB 到 -As dB (或更低)
+          maxVal = 5; // 0dB 略微向上
+          minVal = Math.max(minVal, -100); // 最小显示到 -100dB
+        } else if (mode === "phase") {
+          // 相位图，范围通常是 -pi 到 pi
+          maxVal = PI;
+          minVal = -PI;
+        }
+
+        const range = maxVal - minVal;
+        if (range === 0) return; // 避免除以零
+
+        // X轴：归一化频率 [0, 1] (0 到 π)
+        const xStep = plotWidth / (data.length - 1);
+
+        // 绘制坐标轴
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+
+        // X轴 (底部)
+        ctx.beginPath();
+        ctx.moveTo(padding, height - padding);
+        ctx.lineTo(width - padding, height - padding);
+        ctx.stroke();
+
+        // Y轴 (左侧)
+        ctx.beginPath();
+        ctx.moveTo(padding, padding);
+        ctx.lineTo(padding, height - padding);
+        ctx.stroke();
+
+        // 绘制网格线和刻度
+        ctx.fillStyle = "#666";
+        ctx.font = "10px sans-serif";
+
+        // X轴刻度 (0, 0.25π, 0.5π, 0.75π, 1.0π)
+        for (let i = 0; i <= 4; i++) {
+          const x = padding + (i * plotWidth) / 4;
+          const freq = (i / 4).toFixed(2);
+          ctx.fillText(`${freq}π`, x - 10, height - padding + 15);
+          ctx.strokeStyle = "#ccc";
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(x, height - padding);
+          ctx.lineTo(x, padding);
+          ctx.stroke();
+        }
+        ctx.fillText(xLabel, width - padding - 50, height - 5);
+
+        // Y轴刻度
+        const numTicks = 5;
+        for (let i = 0; i < numTicks; i++) {
+          const yValue = minVal + (range / (numTicks - 1)) * i;
+          const y = height - padding - ((yValue - minVal) * plotHeight) / range;
+
+          // 绘制刻度线
+          ctx.strokeStyle = "#ccc";
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(padding, y);
+          ctx.lineTo(width - padding, y);
+          ctx.stroke();
+
+          // 绘制刻度标签
+          ctx.fillStyle = "#666";
+          ctx.fillText(
+            yValue.toFixed(mode === "magnitude" ? 0 : 2),
+            padding - 35,
+            y + 3
+          );
+        }
+        ctx.fillText(yLabel, 5, padding - 10);
+
+        // 绘制曲线
+        ctx.strokeStyle = "#ef4444"; // 红色曲线
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        for (let i = 0; i < data.length; i++) {
+          const x = padding + i * xStep;
+          // 归一化 Y 坐标
+          const y =
+            height - padding - ((data[i] - minVal) * plotHeight) / range;
+
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+      }
+
+      /**
+       * 切换带通/带阻额外参数的显示
+       */
+      document
+        .getElementById("filterType")
+        .addEventListener("change", function () {
+          const type = this.value;
+          const extraContainer = document.getElementById("extraFreqContainer");
+          const wpElement = document.getElementById("wp");
+          const wsElement = document.getElementById("ws");
+
+          if (type === "bandpass" || type === "bandstop") {
+            extraContainer.classList.remove("hidden");
+          } else {
+            extraContainer.classList.add("hidden");
+          }
+
+          // 更新标签提示
+          if (type === "lowpass") {
+            wpElement.parentNode.querySelector("label").innerHTML =
+              "通带截止频率 $\\omega_p / \\pi$ (例如: 0.2):";
+            wsElement.parentNode.querySelector("label").innerHTML =
+              "阻带起始频率 $\\omega_s / \\pi$ (例如: 0.3):";
+          } else if (type === "highpass") {
+            wpElement.parentNode.querySelector("label").innerHTML =
+              "通带起始频率 $\\omega_p / \\pi$ (例如: 0.7):";
+            wsElement.parentNode.querySelector("label").innerHTML =
+              "阻带截止频率 $\\omega_s / \\pi$ (例如: 0.6):";
+          } else if (type === "bandpass") {
+            wpElement.parentNode.querySelector("label").innerHTML =
+              "低截止频率 $\\omega_{p1} / \\pi$ (例如: 0.2):";
+            wsElement.parentNode.querySelector("label").innerHTML =
+              "低阻带频率 $\\omega_{s1} / \\pi$ (例如: 0.1):";
+          } else if (type === "bandstop") {
+            wpElement.parentNode.querySelector("label").innerHTML =
+              "低通带频率 $\\omega_{p1} / \\pi$ (例如: 0.2):";
+            wsElement.parentNode.querySelector("label").innerHTML =
+              "低阻带频率 $\\omega_{s1} / \\pi$ (例如: 0.3):";
+          }
+        });
+
+      // 页面加载完成后自动运行一次默认设计
+      window.onload = function () {
+        designAndPlot();
+      };
+    </script>
+  </body>
+</html>
